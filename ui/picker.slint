@@ -1,0 +1,92 @@
+import { LineEdit } from "std-widgets.slint";
+import "../fonts/inter.ttf";
+
+export struct Meme {
+    name: string,
+    thumb: image,
+}
+
+component PillButton inherits Rectangle {
+    in property <string> label;
+    in property <image> icon;
+    callback clicked();
+
+    height: 32px;
+    width: 88px;
+    border-radius: 5px;
+    background: touch.has-hover ? #303030 : #202020;
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {root.clicked()}
+    }
+
+    HorizontalLayout {
+        spacing: 6px;
+        alignment: center;
+        Image {
+            source: root.icon;
+            colorize: touch.has-hover ? #fff : #C0C0C0;
+            width: 14px;
+            image-fit: contain;
+        }
+
+        Text {
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            font-size: 13px;
+            color: touch.has-hover ? #fff : #C0C0C0;
+            font-family: "Inter";
+            text: root.label;
+        }
+    }
+
+}
+
+export component Picker inherits Window {
+    no-frame: true;
+    always-on-top: true;
+    background: transparent;
+
+    in property <[Meme]> memes;
+    callback close();
+
+    in-out property <int> selected-index: 0;
+
+
+
+    FocusScope {
+        init => { self.focus(); }
+
+        key-pressed(event) => {
+            if(event.text == Key.Escape){
+                root.close();
+                return accept;
+            }
+            reject;
+        }
+
+        Rectangle {
+            width: 488px;
+            height: 325px;
+            background: #000000;
+            border-width: 2px;
+            border-color: #171717;
+            border-radius: 5px;
+            PillButton {
+                x: 12px;
+                y: 12px;
+                label: "Uploads";
+                icon: @image-url("../assets/uploadicon.svg");
+            }
+            PillButton {
+                x: 110px;
+                y: 12px;
+                label: "Pinterest";
+                icon: @image-url("../assets/pinteresticon.svg");
+            }
+        }
+
+
+    }
+}
