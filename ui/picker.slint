@@ -43,6 +43,34 @@ component PillButton inherits Rectangle {
 
 }
 
+component windowAction inherits Rectangle {
+    in property <image> icon;
+    callback clicked();
+
+    height: 32px;
+    width: 32px;
+    border-radius: 5px;
+    background: touch.has-hover ? #ff0000 : #202020;
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {root.clicked()}
+    }
+    Rectangle {
+        Text {
+            vertical-alignment: center;
+            horizontal-alignment: center;
+            Image {
+                source: root.icon;
+                colorize: touch.has-hover ? #fff : #C0C0C0;
+                width: 24px;
+                image-fit: contain;
+            }
+        }
+    }
+
+
+}
+
 export component Picker inherits Window {
     no-frame: true;
     always-on-top: true;
@@ -66,6 +94,7 @@ export component Picker inherits Window {
             reject;
         }
 
+
         Rectangle {
             width: 488px;
             height: 325px;
@@ -84,6 +113,14 @@ export component Picker inherits Window {
                 y: 12px;
                 label: "Pinterest";
                 icon: @image-url("../assets/pinteresticon.svg");
+            }
+            windowAction {
+                y: 12px;
+                x: 444px;
+                icon: @image-url("../assets/xicon.svg");
+                clicked => {
+                    root.close();
+                }
             }
         }
 
