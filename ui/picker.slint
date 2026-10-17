@@ -71,8 +71,11 @@ component windowAction inherits Rectangle {
 
 component MemeBox inherits Rectangle {
     in property <image> thumb;
+    in property <bool> selected;
     background: #202020;
     border-radius: 6px;
+    border-width: selected ? 2px : 0px;
+    border-color:#fff;
     clip: true;
 
     Image {
@@ -85,6 +88,8 @@ component MemeBox inherits Rectangle {
 
 component MemeGrid inherits Rectangle {
     in property <[Meme]> memes;
+
+    in property <int> selected-index;
     callback picked(int);
 
     property <int> cols: 4;
@@ -101,6 +106,7 @@ component MemeGrid inherits Rectangle {
         for meme[i] in memes: MemeBox {
             x: mod(i, cols) * (root.cell + gap);
             y: floor(i / cols) * (root.cell + gap);
+            selected: i == root.selected-index;
             width: root.cell;
             height: root.cell;
             thumb: meme.thumb;
@@ -114,6 +120,7 @@ component MemeGrid inherits Rectangle {
 }
 
 export component Picker inherits Window {
+
     no-frame: true;
     always-on-top: true;
     background: transparent;
@@ -132,6 +139,24 @@ export component Picker inherits Window {
             if(event.text == Key.Escape){
                 root.close();
                 return accept;
+            }
+            if(event.text == Key.LeftArrow){
+
+                if(root.selected-index <= 0){
+                    root.selected-index = root.memes.length - 1;
+                }else{
+                    root.selected-index = root.selected-index - 1;
+                }
+                debug("index is now", root.selected-index);
+                return accept;
+            }
+            if(event.text == Key.RightArrow){
+                if(root.selected-index >= root.memes.length - 1){
+                    root.selected-index =  0;
+                }else{
+                    root.selected-index = root.selected-index + 1;
+                }
+                debug("index is now", root.selected-index);
             }
             reject;
         }
@@ -171,6 +196,7 @@ export component Picker inherits Window {
                 width: parent.width - 20px;
                 height: parent.height - 62px;
                 memes: root.memes;
+                selected-index: root.selected-index;
             }
             // ScrollView {
             //     x: 10px;
