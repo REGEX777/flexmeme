@@ -92,12 +92,24 @@ component MemeGrid inherits Rectangle {
     in property <int> selected-index;
     callback picked(int);
 
-    property <int> cols: 4;
+    in property <int> cols: 4;
     property <length> gap: 8px;
     // 12px reserved for the scrollbar
     property <length> cell: (self.width - 12px - (cols - 1) * gap) / cols;
+    property <length> row-top: floor(selected-index / cols) * (cell + gap);
+    property <length> row-bottom: cell + row-top;
 
-    ScrollView {
+    changed selected-index => {
+        if (row-top < -sv.viewport-y) {
+            // the row whe selected is smaller than the position of viewport y, we need to scroll up bzz
+            sv.viewport-y = -row-top;
+            // jitna viewport niche hai utna minus krke usko upar pohcha do 
+        } else if (row-bottom > -sv.viewport-y + sv.height) {
+            sv.viewport-y = -(row-bottom - sv.height);
+        }
+    }
+
+    sv := ScrollView {
         width: parent.width;
         height: parent.height;
         viewport-width: root.width;
@@ -129,6 +141,7 @@ export component Picker inherits Window {
     callback close();
 
     in-out property <int> selected-index: 0;
+    property <int> cols: 4;
 
 
 
@@ -157,6 +170,17 @@ export component Picker inherits Window {
                     root.selected-index = root.selected-index + 1;
                 }
                 debug("index is now", root.selected-index);
+                return accept;
+            }
+            if(event.text == Key.DownArrow){
+                root.selected-index = min(root.selected-index + root.cols, root.memes.length - 1);
+                debug("index is now", root.selected-index);
+                return accept;
+            }
+            if(event.text == Key.UpArrow){
+                root.selected-index = max(root.selected-index - root.cols, 0);
+                debug("index is now", root.selected-index);
+                return accept;
             }
             reject;
         }
@@ -197,6 +221,7 @@ export component Picker inherits Window {
                 height: parent.height - 62px;
                 memes: root.memes;
                 selected-index: root.selected-index;
+                cols: root.cols;
             }
             // ScrollView {
             //     x: 10px;
