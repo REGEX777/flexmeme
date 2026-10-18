@@ -1,8 +1,9 @@
 mod db;
 slint::include_modules!();
 
-use slint::{ModelRc, VecModel, Image, SharedString};
-use std::{path::Path, result};
+use slint::{Image, ModelRc, SharedString, VecModel, platform::Key::{Alt, Control}};
+use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState, hotkey::{HotKey, Modifiers, Code}};
+use std::{path::Path, time::Duration};
 
 
 fn main() -> Result<(), slint::PlatformError> {
@@ -43,5 +44,36 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     });
 
-    ui.run()
+    // registering the ctrl alt and m key 
+
+    let manager = GlobalHotKeyManager::new().unwrap();
+    let open = HotKey::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyM);
+    manager.register(open).unwrap();
+
+    let open_id = open.id();
+
+
+
+    // checking if the hotkey was pressed every 15ms
+    let rx = GlobalHotKeyEvent::receiver();
+    let weak = ui.as_weak();
+    let timer = slint::Timer::default();
+    timer.start(slint::TimerMode::Repeated, Duration::from_millis(15), move || {
+        while let Ok(ev) = rx.try_recv() {
+            if ev.state != HotKeyState::Pressed { continue; }
+            if(ev.id == open_id){
+                if let Some(ui) = weak.upgrade(){
+                    if ui.window().is_visible(){
+                        ui.hide().ok();
+                    }else{
+                        ui.window().show();
+                    }
+                }
+            }
+        }
+    });
+
+
+    ui.show()?;
+    slint::run_event_loop_until_quit()
 }
