@@ -6,8 +6,10 @@ edition = "2024"
 [dependencies]
 dirs = "7.0.0"
 global-hotkey = "0.9.0"
+raw-window-handle = "0.6.2"
 rusqlite = { version = "0.40.2", features = ["bundled"] }
-slint = "1.16.1"
+slint = { version = "1.x", features = ["raw-window-handle-06"] }
+windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
 
 [build-dependencies]
 slint-build = "1.16.1"

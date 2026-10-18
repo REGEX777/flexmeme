@@ -1352,9 +1352,11 @@ version = "0.1.0"
 dependencies = [
  "dirs",
  "global-hotkey",
+ "raw-window-handle",
  "rusqlite",
  "slint",
  "slint-build",
+ "windows 0.62.2",
 ]
 
 [[package]]
@@ -4358,6 +4360,7 @@ dependencies = [
  "num-traits",
  "once_cell",
  "pin-weak",
+ "raw-window-handle",
  "slint-macros",
  "unicode-segmentation",
  "vtable",
