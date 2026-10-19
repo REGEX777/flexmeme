@@ -143,7 +143,26 @@ export component Picker inherits Window {
     in-out property <int> selected-index: 0;
     property <int> cols: 4;
 
-
+    public function select-next() {
+        if (root.selected-index >= root.memes.length - 1) {
+            root.selected-index = 0;
+        } else {
+            root.selected-index = root.selected-index + 1;
+        }
+    }
+    public function select-prev() {
+        if (root.selected-index <= 0) {
+            root.selected-index = root.memes.length - 1;
+        } else {
+            root.selected-index = root.selected-index - 1;
+        }
+    }
+    public function select-down() {
+        root.selected-index = min(root.selected-index + root.cols, root.memes.length - 1);
+    }
+    public function select-up() {
+        root.selected-index = max(root.selected-index - root.cols, 0);
+    }
 
     FocusScope {
         init => { self.focus(); }

@@ -10,7 +10,7 @@ use windows::Win32::UI::WindowsAndMessaging::FindWindowW;
 use windows::Win32::UI::WindowsAndMessaging::{
     GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
 };
-
+use std::rc::Rc;
 
 fn make_non_activating(){
     let hwnd = match unsafe { FindWindowW(PCWSTR::null(), w!("flexmeme-popup")) } {
@@ -32,6 +32,19 @@ fn make_non_activating(){
     }
 }
 
+
+fn show_popup(ui: &Picker, manager: &GlobalHotKeyManager, nav: &[HotKey]) {
+    if let Err(e) = manager.register_all(nav) {
+        println!("registering nav keys failed: {:?}", e);
+    }
+    ui.set_selected_index(0);
+    ui.show().ok();
+}
+
+fn hide_popup(ui: &Picker, manager: &GlobalHotKeyManager, nav: &[HotKey]) {
+    manager.unregister_all(nav).ok();   // ALWAYS give the keys back brochacho mueheheh
+    ui.hide().ok();
+}
 
 fn main() -> Result<(), slint::PlatformError> {
     let t = std::time::Instant::now();
@@ -66,55 +79,73 @@ fn main() -> Result<(), slint::PlatformError> {
 
     ui.set_memes(ModelRc::new(VecModel::from(memes)));
 
+    let manager = Rc::new(GlobalHotKeyManager::new().unwrap());
+
+    // ctrl + alt + m will open the popup
+    let open = HotKey::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyM);
+    manager.register(open).unwrap();
+    let open_id = open.id();
+
+    
+    let left = HotKey::new(None, Code::ArrowLeft);
+    let right = HotKey::new(None, Code::ArrowRight);
+    let up = HotKey::new(None, Code::ArrowUp);
+    let down = HotKey::new(None, Code::ArrowDown);
+    let enter = HotKey::new(None, Code::Enter);
+    let esc = HotKey::new(None, Code::Escape);
+    let nav = [left, right, up, down, enter, esc];
+
+    // cross button
     let weak = ui.as_weak();
+    let mgr = manager.clone();
     ui.on_close(move || {
+        if let Some(ui) = weak.upgrade() {
+            hide_popup(&ui, &mgr, &nav);
+        }
+    });
+
+    // apply the style and then start hidden
+    let weak = ui.as_weak();
+    slint::Timer::single_shot(Duration::from_millis(300), move || {
+        make_non_activating();
         if let Some(ui) = weak.upgrade() {
             ui.hide().ok();
         }
     });
 
-
-    let weak = ui.as_weak();
-    slint::Timer::single_shot(Duration::from_millis(300), move || {
-        println!("event loop running at: {:?}", t.elapsed());
-        make_non_activating();
-        if let Some(ui) = weak.upgrade() {
-            ui.hide().ok();      // start hidden, Ctrl+Alt+M shows karegaa bhaiyeee
-        }
-    });
-
-    // registering the ctrl alt and m key 
-
-    let manager = GlobalHotKeyManager::new().unwrap();
-    let open = HotKey::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyM);
-    manager.register(open).unwrap();
-
-    let open_id = open.id();
-
-
-
-    // checking if the hotkey was pressed every 15ms
+    // 15 milisecond hotkey press checking
     let rx = GlobalHotKeyEvent::receiver();
     let weak = ui.as_weak();
+    let mgr = manager.clone();
     let timer = slint::Timer::default();
     timer.start(slint::TimerMode::Repeated, Duration::from_millis(15), move || {
         while let Ok(ev) = rx.try_recv() {
             if ev.state != HotKeyState::Pressed { continue; }
-            if ev.id == open_id{
-                if let Some(ui) = weak.upgrade(){
-                    if ui.window().is_visible() {
-                        ui.hide().ok();
-                    } else {
-                        ui.show().ok();
-                    }
+            let Some(ui) = weak.upgrade() else { continue };
+            let visible = ui.window().is_visible();
+
+            if ev.id == open_id {
+                if visible {
+                    hide_popup(&ui, &mgr, &nav);
+                } else {
+                    show_popup(&ui, &mgr, &nav);
+                }
+            } else if visible {
+                if ev.id == left.id() { ui.invoke_select_prev(); }
+                else if ev.id == right.id() { ui.invoke_select_next(); }
+                else if ev.id == up.id() { ui.invoke_select_up(); }
+                else if ev.id == down.id() { ui.invoke_select_down(); }
+                else if ev.id == esc.id() { hide_popup(&ui, &mgr, &nav); }
+                else if ev.id == enter.id() {
+                    let idx = ui.get_selected_index();
+                    println!("picked index {idx}");
+                    hide_popup(&ui, &mgr, &nav);
+                    // paste stuff pending
                 }
             }
         }
     });
 
-
     ui.show()?;
-    println!("starting loop");
     slint::run_event_loop_until_quit()
 }
-
