@@ -6,6 +6,7 @@ use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState, hotkey:
 use std::{path::Path, time::Duration};
 use windows::core::{w, PCWSTR};
 use windows::Win32::UI::WindowsAndMessaging::FindWindowW;
+use arboard;
 
 use windows::Win32::UI::WindowsAndMessaging::{
     GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
