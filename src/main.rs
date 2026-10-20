@@ -1,12 +1,14 @@
 mod db;
 slint::include_modules!();
 
+use image::ImageReader;
 use slint::{Image, ModelRc, SharedString, VecModel};
 use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState, hotkey::{HotKey, Modifiers, Code}};
 use std::{path::Path, time::Duration};
 use windows::core::{w, PCWSTR};
 use windows::Win32::UI::WindowsAndMessaging::FindWindowW;
-use arboard;
+use arboard::Clipboard;
+use enigo::{Enigo, Keyboard, Key, Settings, Direction};
 
 use windows::Win32::UI::WindowsAndMessaging::{
     GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
@@ -47,6 +49,23 @@ fn hide_popup(ui: &Picker, manager: &GlobalHotKeyManager, nav: &[HotKey]) {
     ui.hide().ok();
 }
 
+fn paste_meme(path: &Path) -> Result<(),  Box<dyn std::error::Error>>{
+    let img = ImageReader::open(path)?.decode()?.into_rgba8();
+
+    let mut clipboard = Clipboard::new()?;
+    clipboard.set_image(arboard::ImageData { width: img.width() as usize, height: img.height() as usize, bytes: img.into_raw().into() })?;
+
+    println!("{:?}", path);
+
+    let mut enigo = Enigo::new(&Settings::default())?;
+
+    enigo.key(Key::Control, Direction::Press)?;
+    enigo.key(Key::Unicode('v'), Direction::Click)?;
+    enigo.key(Key::Control, Direction::Release)?;
+
+    Ok(())
+}
+
 fn main() -> Result<(), slint::PlatformError> {
     let t = std::time::Instant::now();
     let ui = Picker::new()?;
@@ -62,7 +81,8 @@ fn main() -> Result<(), slint::PlatformError> {
         match Image::load_from_path(Path::new(&row.path)){
             Ok(thumb)=>memes.push(Meme {
                 name: SharedString::from(row.name),
-                thumb
+                thumb,
+                path: SharedString::from(row.path)
             }),
             Err(e) => eprintln!("skipping: {}: {:?}", row.path, e),
         }
@@ -78,7 +98,7 @@ fn main() -> Result<(), slint::PlatformError> {
     //     }
     // ];
 
-    ui.set_memes(ModelRc::new(VecModel::from(memes)));
+    ui.set_memes(ModelRc::new(VecModel::from(memes.clone())));
 
     let manager = Rc::new(GlobalHotKeyManager::new().unwrap());
 
@@ -119,6 +139,8 @@ fn main() -> Result<(), slint::PlatformError> {
     let weak = ui.as_weak();
     let mgr = manager.clone();
     let timer = slint::Timer::default();
+    
+
     timer.start(slint::TimerMode::Repeated, Duration::from_millis(15), move || {
         while let Ok(ev) = rx.try_recv() {
             if ev.state != HotKeyState::Pressed { continue; }
@@ -141,7 +163,8 @@ fn main() -> Result<(), slint::PlatformError> {
                     let idx = ui.get_selected_index();
                     println!("picked index {idx}");
                     hide_popup(&ui, &mgr, &nav);
-                    // paste stuff pending
+                    // pasting sequence 
+                    paste_meme(Path::new(&memes[idx as usize].path)).unwrap_or_else(|e| eprintln!("Failed to paste the image: {e}"));
                 }
             }
         }
