@@ -1426,6 +1426,7 @@ name = "flexmeme"
 version = "0.1.0"
 dependencies = [
  "arboard",
+ "clipboard-win",
  "dirs",
  "enigo",
  "global-hotkey",

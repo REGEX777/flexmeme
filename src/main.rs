@@ -7,8 +7,9 @@ use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState, hotkey:
 use std::{path::Path, time::Duration};
 use windows::core::{w, PCWSTR};
 use windows::Win32::UI::WindowsAndMessaging::FindWindowW;
-use arboard::Clipboard;
+// use arboard::Clipboard;
 use enigo::{Enigo, Keyboard, Key, Settings, Direction};
+use clipboard_win::{Clipboard, Setter, formats};
 
 use windows::Win32::UI::WindowsAndMessaging::{
     GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
@@ -52,8 +53,15 @@ fn hide_popup(ui: &Picker, manager: &GlobalHotKeyManager, nav: &[HotKey]) {
 fn paste_meme(path: &Path) -> Result<(),  Box<dyn std::error::Error>>{
     let img = ImageReader::open(path)?.decode()?.into_rgba8();
 
-    let mut clipboard = Clipboard::new()?;
-    clipboard.set_image(arboard::ImageData { width: img.width() as usize, height: img.height() as usize, bytes: img.into_raw().into() })?;
+    // let mut clipboard = Clipboard::new()?;
+    // clipboard.set_image(arboard::ImageData { width: img.width() as usize, height: img.height() as usize, bytes: img.into_raw().into() })?;
+
+    let clip = Clipboard::new_attempts(10)?;
+
+
+    let files = [path.to_str().ok_or("Invalid Path")?];
+    
+    clipboard_win::raw::set_file_list(&files)?;
 
     println!("{:?}", path);
 
@@ -164,7 +172,12 @@ fn main() -> Result<(), slint::PlatformError> {
                     println!("picked index {idx}");
                     hide_popup(&ui, &mgr, &nav);
                     // pasting sequence 
-                    paste_meme(Path::new(&memes[idx as usize].path)).unwrap_or_else(|e| eprintln!("Failed to paste the image: {e}"));
+                    if let Some(m) = memes.get(idx as usize){
+                        let path = m.path.to_string();
+                        slint::Timer::single_shot(Duration::from_millis(50), move || {
+                            paste_meme(Path::new(&path)).unwrap_or_else(|e| eprintln!("Failed to paste the image: {e}"));
+                        });
+                    }
                 }
             }
         }
