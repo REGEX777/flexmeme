@@ -68,7 +68,7 @@ fn paste_meme(path: &Path) -> Result<(),  Box<dyn std::error::Error>>{
     let mut enigo = Enigo::new(&Settings::default())?;
 
     enigo.key(Key::Control, Direction::Press)?;
-    enigo.key(Key::Unicode('v'), Direction::Click)?;
+    enigo.key(Key::Other(0x56), Direction::Click)?;
     enigo.key(Key::Control, Direction::Release)?;
 
     Ok(())
