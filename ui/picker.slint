@@ -73,17 +73,26 @@ component windowAction inherits Rectangle {
 component MemeBox inherits Rectangle {
     in property <image> thumb;
     in property <bool> selected;
-    background: #202020;
+    callback clicked();
+
+    background:#202020;
     border-radius: 6px;
-    border-width: selected ? 2px : 0px;
+    border-width: selected || touch.has-hover ? 2px : 0px;
     border-color:#fff;
     clip: true;
+
 
     Image {
         source: root.thumb;
         width: 100%;
         height: 100%;
         image-fit: cover;
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
     }
 }
 
@@ -123,11 +132,7 @@ component MemeGrid inherits Rectangle {
             width: root.cell;
             height: root.cell;
             thumb: meme.thumb;
-
-            TouchArea {
-                mouse-cursor: pointer;
-                clicked => { root.picked(i); }
-            }
+            clicked => { root.picked(i); }
         }
     }
 }
