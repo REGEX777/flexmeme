@@ -51,12 +51,10 @@ fn hide_popup(ui: &Picker, manager: &GlobalHotKeyManager, nav: &[HotKey]) {
 }
 
 fn paste_meme(path: &Path) -> Result<(),  Box<dyn std::error::Error>>{
-    let img = ImageReader::open(path)?.decode()?.into_rgba8();
-
     // let mut clipboard = Clipboard::new()?;
     // clipboard.set_image(arboard::ImageData { width: img.width() as usize, height: img.height() as usize, bytes: img.into_raw().into() })?;
 
-    let clip = Clipboard::new_attempts(10)?;
+    let _clip = Clipboard::new_attempts(10)?;
 
 
     let files = [path.to_str().ok_or("Invalid Path")?];
@@ -105,8 +103,8 @@ fn main() -> Result<(), slint::PlatformError> {
     //         }
     //     }
     // ];
-
-    ui.set_memes(ModelRc::new(VecModel::from(memes.clone())));
+    let memes = Rc::new(memes);
+    ui.set_memes(ModelRc::new(VecModel::from(memes.as_ref().clone())));
 
     let manager = Rc::new(GlobalHotKeyManager::new().unwrap());
 
@@ -123,13 +121,30 @@ fn main() -> Result<(), slint::PlatformError> {
     let enter = HotKey::new(None, Code::Enter);
     let esc = HotKey::new(None, Code::Escape);
     let nav = [left, right, up, down, enter, esc];
-
     // cross button
     let weak = ui.as_weak();
     let mgr = manager.clone();
     ui.on_close(move || {
         if let Some(ui) = weak.upgrade() {
             hide_popup(&ui, &mgr, &nav);
+        }
+    });
+
+    let weak = ui.as_weak();
+    let mgr2 = manager.clone();
+    let memes_click = memes.clone();
+    
+    ui.on_memeclicked(move |index|{
+        println!("{}", index);
+        if let Some(ui) = weak.upgrade(){
+            hide_popup(&ui, &mgr2, &nav);     
+            // pasting sequence next
+            if let Some(m) = memes_click.get(index as usize){
+                let path = m.path.to_string();
+                slint::Timer::single_shot(Duration::from_millis(50), move || {
+                    paste_meme(Path::new(&path)).unwrap_or_else(|e| eprintln!("Failed to paste the image: {e}"));
+                });
+            }
         }
     });
 
@@ -150,11 +165,11 @@ fn main() -> Result<(), slint::PlatformError> {
     
 
     timer.start(slint::TimerMode::Repeated, Duration::from_millis(15), move || {
+
         while let Ok(ev) = rx.try_recv() {
             if ev.state != HotKeyState::Pressed { continue; }
             let Some(ui) = weak.upgrade() else { continue };
             let visible = ui.window().is_visible();
-
             if ev.id == open_id {
                 if visible {
                     hide_popup(&ui, &mgr, &nav);
