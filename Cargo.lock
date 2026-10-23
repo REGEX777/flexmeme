@@ -1435,6 +1435,8 @@ dependencies = [
  "rusqlite",
  "slint",
  "slint-build",
+ "termion",
+ "uiautomation",
  "windows 0.62.2",
 ]
 
@@ -3062,6 +3064,12 @@ dependencies = [
  "quote",
  "syn 2.0.119",
 ]
+
+[[package]]
+name = "numtoa"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6aa2c4e539b869820a2b82e1aef6ff40aa85e65decdd5185e83fb4b1249cd00f"
 
 [[package]]
 name = "objc-sys"
@@ -4817,6 +4825,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "termion"
+version = "4.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f44138a9ae08f0f502f24104d82517ef4da7330c35acd638f1f29d3cd5475ecb"
+dependencies = [
+ "libc",
+ "numtoa",
+]
+
+[[package]]
 name = "text-size"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5099,6 +5117,29 @@ dependencies = [
  "memoffset",
  "tempfile",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "uiautomation"
+version = "0.25.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fa2eacf9390a8491bc949b04230f40c12520c6423a2962a6087eea1ef14373af"
+dependencies = [
+ "chrono",
+ "uiautomation_derive",
+ "windows 0.62.2",
+ "windows-core 0.62.2",
+]
+
+[[package]]
+name = "uiautomation_derive"
+version = "0.7.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1c893ec96e05c3c81ba46f838f3190549ec185ef377d582ab3d44202b2dfacbd"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.6",
 ]
 
 [[package]]

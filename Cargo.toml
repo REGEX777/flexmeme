@@ -13,6 +13,8 @@ image = "0.25.10"
 raw-window-handle = "0.6.2"
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 slint = { version = "1.x", features = ["raw-window-handle-06"] }
+termion = "4.0.6"
+uiautomation = "0.25.1"
 windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
 
 [build-dependencies]

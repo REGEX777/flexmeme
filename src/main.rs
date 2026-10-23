@@ -10,11 +10,16 @@ use windows::Win32::UI::WindowsAndMessaging::FindWindowW;
 // use arboard::Clipboard;
 use enigo::{Enigo, Keyboard, Key, Settings, Direction};
 use clipboard_win::{Clipboard, Setter, formats};
+use uiautomation::UIAutomation;
 
 use windows::Win32::UI::WindowsAndMessaging::{
     GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
 };
 use std::rc::Rc;
+
+
+struct inputbox {};
+
 
 fn make_non_activating(){
     let hwnd = match unsafe { FindWindowW(PCWSTR::null(), w!("flexmeme-popup")) } {
