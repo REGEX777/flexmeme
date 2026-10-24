@@ -10,15 +10,14 @@ use windows::Win32::UI::WindowsAndMessaging::FindWindowW;
 // use arboard::Clipboard;
 use enigo::{Enigo, Keyboard, Key, Settings, Direction};
 use clipboard_win::{Clipboard, Setter, formats};
-use uiautomation::UIAutomation;
+use uiautomation::{types::ControlType, UIAutomation};
+use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+
 
 use windows::Win32::UI::WindowsAndMessaging::{
     GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
 };
 use std::rc::Rc;
-
-
-struct inputbox {};
 
 
 fn make_non_activating(){
@@ -43,11 +42,15 @@ fn make_non_activating(){
 
 
 fn show_popup(ui: &Picker, manager: &GlobalHotKeyManager, nav: &[HotKey]) {
+    let before = unsafe { GetForegroundWindow() };
     if let Err(e) = manager.register_all(nav) {
         println!("registering nav keys failed: {:?}", e);
     }
     ui.set_selected_index(0);
     ui.show().ok();
+    let after = unsafe { GetForegroundWindow() };
+    println!("foreground before={:?} after={:?} changed={}", before, after, before != after);
+
 }
 
 fn hide_popup(ui: &Picker, manager: &GlobalHotKeyManager, nav: &[HotKey]) {
@@ -76,6 +79,35 @@ fn paste_meme(path: &Path) -> Result<(),  Box<dyn std::error::Error>>{
 
     Ok(())
 }
+
+
+fn report_input_location(auto: &UIAutomation){
+    let Ok(el) = auto.get_focused_element() else {
+        println!("No focused element");
+        return;
+    };
+
+    let Ok(ct) = el.get_control_type() else { return };
+
+    // if ct != ControlType::Edit && ct != ControlType::Document {
+    //     println!("Focused is not input bar {:?}", ct);
+    //     return;
+    // } meo
+
+    if let Ok(r) = el.get_bounding_rectangle() {
+        println!(
+            "input box: left={} top={} right={} bottom={} ({}x{})",
+            r.get_left(),
+            r.get_top(),
+            r.get_right(),
+            r.get_bottom(),
+            r.get_right() - r.get_left(),
+            r.get_bottom() - r.get_top()
+        );
+    };
+
+}
+
 
 fn main() -> Result<(), slint::PlatformError> {
     let t = std::time::Instant::now();
@@ -168,7 +200,9 @@ fn main() -> Result<(), slint::PlatformError> {
     let mgr = manager.clone();
     let timer = slint::Timer::default();
     
-
+    // let auto = UIAutomation::new().map_err(|e| e.to_string())?;
+    let mut auto: Option<UIAutomation> = None;
+    
     timer.start(slint::TimerMode::Repeated, Duration::from_millis(15), move || {
 
         while let Ok(ev) = rx.try_recv() {
@@ -179,6 +213,13 @@ fn main() -> Result<(), slint::PlatformError> {
                 if visible {
                     hide_popup(&ui, &mgr, &nav);
                 } else {
+                    if auto.is_none(){
+                        auto = UIAutomation::new_direct().ok();
+                    }
+                    if let Some(a) = &auto {
+                        report_input_location(a);
+                    }
+                    println!("opened!");
                     show_popup(&ui, &mgr, &nav);
                 }
             } else if visible {
