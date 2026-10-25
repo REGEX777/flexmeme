@@ -8,16 +8,32 @@ use std::{path::Path, time::Duration};
 use windows::core::{w, PCWSTR};
 use windows::Win32::UI::WindowsAndMessaging::FindWindowW;
 // use arboard::Clipboard;
+use std::sync::mpsc;
 use enigo::{Enigo, Keyboard, Key, Settings, Direction};
 use clipboard_win::{Clipboard, Setter, formats};
-use uiautomation::{types::ControlType, UIAutomation};
-use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
-
-
+use uiautomation::{types::{ControlType, Handle}, UIAutomation, UIElement};
+use windows::Win32::UI::WindowsAndMessaging::{
+    SystemParametersInfoW, SPI_SETSCREENREADER, SPIF_SENDCHANGE,
+    SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, GetForegroundWindow
+};
+use windows::Win32::Foundation::HWND;
+use windows::Win32::UI::WindowsAndMessaging::GetWindowRect;
 use windows::Win32::UI::WindowsAndMessaging::{
     GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
 };
+use windows::Win32::Foundation::{POINT, RECT};
+use windows::Win32::Graphics::Gdi::{
+    GetMonitorInfoW, MonitorFromRect, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+};
+use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 use std::rc::Rc;
+
+
+fn set_screen_reader_flag(on: bool) {
+    unsafe {
+        let _ = SystemParametersInfoW(SPI_SETSCREENREADER, on as u32, None, SPIF_SENDCHANGE);
+    }
+}
 
 
 fn make_non_activating(){
@@ -42,14 +58,14 @@ fn make_non_activating(){
 
 
 fn show_popup(ui: &Picker, manager: &GlobalHotKeyManager, nav: &[HotKey]) {
-    let before = unsafe { GetForegroundWindow() };
+    // let before = unsafe { GetForegroundWindow() };
     if let Err(e) = manager.register_all(nav) {
         println!("registering nav keys failed: {:?}", e);
     }
     ui.set_selected_index(0);
     ui.show().ok();
-    let after = unsafe { GetForegroundWindow() };
-    println!("foreground before={:?} after={:?} changed={}", before, after, before != after);
+    // let after = unsafe { GetForegroundWindow() };
+    // println!("foreground before={:?} after={:?} changed={}", before, after, before != after);
 
 }
 
@@ -80,37 +96,97 @@ fn paste_meme(path: &Path) -> Result<(),  Box<dyn std::error::Error>>{
     Ok(())
 }
 
+type Rect4 = (i32, i32, i32, i32);
 
-fn report_input_location(auto: &UIAutomation){
-    let Ok(el) = auto.get_focused_element() else {
-        println!("No focused element");
-        return;
-    };
-
-    let Ok(ct) = el.get_control_type() else { return };
-
-    // if ct != ControlType::Edit && ct != ControlType::Document {
-    //     println!("Focused is not input bar {:?}", ct);
-    //     return;
-    // } meo
-
-    if let Ok(r) = el.get_bounding_rectangle() {
-        println!(
-            "input box: left={} top={} right={} bottom={} ({}x{})",
-            r.get_left(),
-            r.get_top(),
-            r.get_right(),
-            r.get_bottom(),
-            r.get_right() - r.get_left(),
-            r.get_bottom() - r.get_top()
-        );
-    };
-
+fn find_input(auto: &UIAutomation) -> Option<UIElement> {
+    let el = auto.get_focused_element().ok()?;
+    matches!(
+        el.get_control_type(),
+        Ok(ControlType::Edit) | Ok(ControlType::Document)
+    )
+    .then_some(el)
 }
 
+// fallback just render it near a thin strip end of the screen like bottom of the screen
+fn window_bottom_rect(hwnd: isize) -> Option<Rect4> {
+    let mut rc = RECT::default();
+    unsafe { GetWindowRect(HWND(hwnd as *mut core::ffi::c_void), &mut rc).ok()?; }
+    let cx = (rc.left + rc.right) / 2;
+    Some((cx - 250, rc.bottom - 80, cx + 250, rc.bottom - 40))
+}
+
+fn cursor_rect() -> Rect4 {
+    let mut p = POINT::default();
+    unsafe { let _ = GetCursorPos(&mut p); }
+    (p.x, p.y, p.x, p.y)
+}
+
+fn place_popup(ui: &Picker, (l, t, r, b): Rect4) {
+    let size = ui.window().size(); // physical px
+    let (w, h) = (size.width as i32, size.height as i32);
+    let gap = 8;
+
+    let rc = RECT { left: l, top: t, right: r, bottom: b };
+    let work = unsafe {
+        let mon = MonitorFromRect(&rc, MONITOR_DEFAULTTONEAREST);
+        let mut mi = MONITORINFO {
+            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
+        if GetMonitorInfoW(mon, &mut mi).as_bool() { mi.rcWork } else { rc }
+    };
+
+    let x = l.clamp(work.left, (work.right - w).max(work.left));
+
+    // if no spcae above box flip the box
+    let mut y = t - h - gap;
+    if y < work.top {
+        y = b + gap;
+    }
+    let y = y.clamp(work.top, (work.bottom - h).max(work.top));
+
+    ui.window().set_position(slint::PhysicalPosition::new(x, y));
+}
+
+fn spawn_uia_worker() -> (mpsc::Sender<isize>, mpsc::Receiver<Option<Rect4>>) {
+    let (req_tx, req_rx) = mpsc::channel::<isize>();
+    let (res_tx, res_rx) = mpsc::channel::<Option<Rect4>>();
+
+    std::thread::spawn(move || {
+        let Ok(auto) = UIAutomation::new() else {
+            eprintln!("uia init failed");
+            return;
+        };
+        while let Ok(mut hwnd) = req_rx.recv() {
+            while let Ok(newer) = req_rx.try_recv() { hwnd = newer; } // skip inactive stale baasi requests
+
+            let t = std::time::Instant::now();
+            println!("uia request start");
+            let mut rect = None;
+            for _ in 0..2 {
+                if let Some(el) = find_input(&auto) {
+                    if let Ok(r) = el.get_bounding_rectangle() {
+                        rect = Some((r.get_left(), r.get_top(), r.get_right(), r.get_bottom()));
+                        break;
+                    }
+                }
+                std::thread::sleep(Duration::from_millis(60));
+            }
+            if rect.is_none() {
+                println!("no focused input, using window bottom");
+                rect = window_bottom_rect(hwnd);
+            }
+            println!("uia took {:?}", t.elapsed());
+            let _ = res_tx.send(rect);
+        }
+    });
+
+    (req_tx, res_rx)
+}
 
 fn main() -> Result<(), slint::PlatformError> {
     let t = std::time::Instant::now();
+    set_screen_reader_flag(true);
     let ui = Picker::new()?;
     
     let conn = db::open().unwrap();
@@ -201,9 +277,32 @@ fn main() -> Result<(), slint::PlatformError> {
     let timer = slint::Timer::default();
     
     // let auto = UIAutomation::new().map_err(|e| e.to_string())?;
-    let mut auto: Option<UIAutomation> = None;
-    
+    let (uia_tx, uia_rx) = spawn_uia_worker();
+    let mut pending_open: Option<std::time::Instant> = None;
     timer.start(slint::TimerMode::Repeated, Duration::from_millis(15), move || {
+        if let Some(since) = pending_open {
+            if since.elapsed() > Duration::from_millis(600) {
+                pending_open = None; // give up, open at the cursor
+                if let Some(ui) = weak.upgrade() {
+                    place_popup(&ui, cursor_rect());
+                    show_popup(&ui, &mgr, &nav);
+                    place_popup(&ui, cursor_rect());
+                }
+            }
+        }
+        while let Ok(rect) = uia_rx.try_recv() {
+            if pending_open.is_none() { continue; } // stale or already timed out
+            pending_open = None;
+            let Some(ui) = weak.upgrade() else { continue };
+
+            let rect = rect.unwrap_or_else(cursor_rect);
+            let (l, t, r, b) = rect;
+            println!("input box: left={l} top={t} right={r} bottom={b} ({}x{})", r - l, b - t);
+
+            place_popup(&ui, rect);
+            show_popup(&ui, &mgr, &nav);
+            place_popup(&ui, rect);
+        }
 
         while let Ok(ev) = rx.try_recv() {
             if ev.state != HotKeyState::Pressed { continue; }
@@ -212,16 +311,15 @@ fn main() -> Result<(), slint::PlatformError> {
             if ev.id == open_id {
                 if visible {
                     hide_popup(&ui, &mgr, &nav);
+            } else if pending_open.is_none() {
+                let hwnd = unsafe { GetForegroundWindow() }.0 as isize;
+                if uia_tx.send(hwnd).is_ok() {
+                    pending_open = Some(std::time::Instant::now());
                 } else {
-                    if auto.is_none(){
-                        auto = UIAutomation::new_direct().ok();
-                    }
-                    if let Some(a) = &auto {
-                        report_input_location(a);
-                    }
-                    println!("opened!");
+                    place_popup(&ui, cursor_rect());
                     show_popup(&ui, &mgr, &nav);
                 }
+            }
             } else if visible {
                 if ev.id == left.id() { ui.invoke_select_prev(); }
                 else if ev.id == right.id() { ui.invoke_select_next(); }
@@ -245,5 +343,7 @@ fn main() -> Result<(), slint::PlatformError> {
     });
 
     ui.show()?;
-    slint::run_event_loop_until_quit()
+    let result = slint::run_event_loop_until_quit();
+    set_screen_reader_flag(false);
+    result
 }
