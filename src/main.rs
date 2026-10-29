@@ -27,7 +27,10 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 use std::rc::Rc;
-
+use uiautomation::events::{CustomFocusChangedEventHandler, UIFocusChangedEventHandler};
+use std::{collections::HashMap, sync::{Arc, Mutex}};
+use windows::Win32::UI::WindowsAndMessaging::{GetGUIThreadInfo, GUITHREADINFO, GetWindowThreadProcessId};
+use windows::Win32::Graphics::Gdi::ClientToScreen;
 
 fn set_screen_reader_flag(on: bool) {
     unsafe {
@@ -40,33 +43,25 @@ fn make_non_activating(){
     let hwnd = match unsafe { FindWindowW(PCWSTR::null(), w!("flexmeme-popup")) } {
         Ok(h) => h,
         Err(e) => {
-            println!("window not found: {:?}", e);
+            eprintln!("popup window not found: {:?}", e);
             return;
         }
     };
-    println!("hwnd = {:?}", hwnd);
 
     unsafe {
         let old = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
         SetWindowLongPtrW(hwnd, GWL_EXSTYLE,
             old | (WS_EX_NOACTIVATE.0 | WS_EX_TOOLWINDOW.0) as isize);
-
-        let now = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-        println!("noactivate: {}", (now & WS_EX_NOACTIVATE.0 as isize) != 0);
     }
 }
 
 
 fn show_popup(ui: &Picker, manager: &GlobalHotKeyManager, nav: &[HotKey]) {
-    // let before = unsafe { GetForegroundWindow() };
     if let Err(e) = manager.register_all(nav) {
-        println!("registering nav keys failed: {:?}", e);
+        eprintln!("registering nav keys failed: {:?}", e);
     }
     ui.set_selected_index(0);
     ui.show().ok();
-    // let after = unsafe { GetForegroundWindow() };
-    // println!("foreground before={:?} after={:?} changed={}", before, after, before != after);
-
 }
 
 fn hide_popup(ui: &Picker, manager: &GlobalHotKeyManager, nav: &[HotKey]) {
@@ -80,12 +75,9 @@ fn paste_meme(path: &Path) -> Result<(),  Box<dyn std::error::Error>>{
 
     let _clip = Clipboard::new_attempts(10)?;
 
-
     let files = [path.to_str().ok_or("Invalid Path")?];
-    
-    clipboard_win::raw::set_file_list(&files)?;
 
-    println!("{:?}", path);
+    clipboard_win::raw::set_file_list(&files)?;
 
     let mut enigo = Enigo::new(&Settings::default())?;
 
@@ -100,13 +92,58 @@ type Rect4 = (i32, i32, i32, i32);
 
 fn find_input(auto: &UIAutomation) -> Option<UIElement> {
     let el = auto.get_focused_element().ok()?;
-    matches!(
-        el.get_control_type(),
-        Ok(ControlType::Edit) | Ok(ControlType::Document)
-    )
-    .then_some(el)
+    let ct = el.get_control_type().ok();
+    // debug: shows what UIA reports as focused (remove once placement is solid)
+    println!(
+        "focused: {:?} name={:?} class={:?} rect={:?}",
+        ct,
+        el.get_name().ok(),
+        el.get_classname().ok(),
+        el.get_bounding_rectangle()
+            .ok()
+            .map(|r| (r.get_left(), r.get_top(), r.get_right(), r.get_bottom()))
+    );
+    matches!(ct, Some(ControlType::Edit) | Some(ControlType::Document) | Some(ControlType::ComboBox)).then_some(el)
 }
 
+fn find_input_in_window(auto: &UIAutomation, hwnd: isize) -> Option<UIElement> {
+    let root = auto.element_from_handle(Handle::from(hwnd)).ok()?;
+    let all = auto
+        .create_matcher()
+        .from(root)
+        .depth(40)
+        .timeout(0)
+        .filter_fn(Box::new(|e: &UIElement| {
+            let ct = e.get_control_type().ok();
+            if !matches!(ct, Some(ControlType::Edit) | Some(ControlType::Document) | Some(ControlType::ComboBox)) { return Ok(false); }
+            if e.get_classname().map(|c| c.contains("Omnibox")).unwrap_or(false) { return Ok(false); }
+            let Ok(r) = e.get_bounding_rectangle() else { return Ok(false) };
+            let (w, h) = (r.get_right() - r.get_left(), r.get_bottom() - r.get_top());
+            Ok(w > 100 && h > 0 && h <= 200)
+        }))
+        .find_all()
+        .ok()?;
+    // compose bars sit at the bottom, so take the lowest one
+    all.into_iter().max_by_key(|e| e.get_bounding_rectangle().map(|r| r.get_bottom()).unwrap_or(0))
+}
+
+fn caret_rect(hwnd: isize) -> Option<Rect4> {
+    unsafe {
+        let h = HWND(hwnd as *mut core::ffi::c_void);
+        let tid = GetWindowThreadProcessId(h, None);
+        let mut gti = GUITHREADINFO {
+            cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
+            ..Default::default()
+        };
+        GetGUIThreadInfo(tid, &mut gti).ok()?;
+        if gti.hwndCaret.0.is_null() { return None; }
+        let mut tl = POINT { x: gti.rcCaret.left, y: gti.rcCaret.top };
+        let mut br = POINT { x: gti.rcCaret.right, y: gti.rcCaret.bottom };
+        if !ClientToScreen(gti.hwndCaret, &mut tl).as_bool() { return None; }
+        if !ClientToScreen(gti.hwndCaret, &mut br).as_bool() { return None; }
+        Some((tl.x, tl.y, br.x, br.y))
+    }
+}
 // fallback just render it near a thin strip end of the screen like bottom of the screen
 fn window_bottom_rect(hwnd: isize) -> Option<Rect4> {
     let mut rc = RECT::default();
@@ -148,7 +185,23 @@ fn place_popup(ui: &Picker, (l, t, r, b): Rect4) {
     ui.window().set_position(slint::PhysicalPosition::new(x, y));
 }
 
-fn spawn_uia_worker() -> (mpsc::Sender<isize>, mpsc::Receiver<Option<Rect4>>) {
+
+fn prewarm(auto: &UIAutomation, hwnd: isize) {
+    let Ok(root) = auto.element_from_handle(Handle::from(hwnd)) else { return };
+    let _ = root.get_name();
+    // walking some children is what makes Chromium build its a11y tree
+    if let Ok(walker) = auto.get_control_view_walker() {
+        let mut cur = walker.get_first_child(&root).ok();
+        let mut n = 0;
+        while let Some(el) = cur {
+            n += 1;
+            if n > 20 { break; }
+            cur = walker.get_next_sibling(&el).ok();
+        }
+    }
+}
+
+fn spawn_uia_worker(cache: Cache) -> (mpsc::Sender<isize>, mpsc::Receiver<Option<Rect4>>) {
     let (req_tx, req_rx) = mpsc::channel::<isize>();
     let (res_tx, res_rx) = mpsc::channel::<Option<Rect4>>();
 
@@ -157,26 +210,88 @@ fn spawn_uia_worker() -> (mpsc::Sender<isize>, mpsc::Receiver<Option<Rect4>>) {
             eprintln!("uia init failed");
             return;
         };
-        while let Ok(mut hwnd) = req_rx.recv() {
-            while let Ok(newer) = req_rx.try_recv() { hwnd = newer; } // skip inactive stale baasi requests
+
+        // background listener that fills the cache; must stay alive for the whole thread
+        let handler = UIFocusChangedEventHandler::from(InputCacher { cache: cache.clone() });
+        if let Err(e) = auto.add_focus_changed_event_handler(None, &handler) {
+            eprintln!("focus handler failed: {e}");
+        }
+
+        let mut last_warm: isize = 0;
+        loop {
+            let mut hwnd = match req_rx.recv_timeout(Duration::from_millis(300)) {
+                Ok(h) => h,
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    // idle: warm whatever window is in front, once per window
+                    let fg = unsafe { GetForegroundWindow() }.0 as isize;
+                    if fg != 0 && fg != last_warm {
+                        last_warm = fg;
+                        prewarm(&auto, fg);
+                    }
+                    continue;
+                }
+                Err(_) => break,
+            };
+            while let Ok(newer) = req_rx.try_recv() { hwnd = newer; } // skip stale requests
 
             let t = std::time::Instant::now();
-            println!("uia request start");
-            let mut rect = None;
-            for _ in 0..2 {
+
+            // 0) text caret: most precise, works in Chromium when an input is focused
+            let mut src = "none";
+            let mut rect = caret_rect(hwnd).filter(|r| {
+                let (w, h) = (r.2 - r.0, r.3 - r.1);
+                println!("[caret] raw rect={:?} ({}x{})", r, w, h);
+                h > 0 && h < 100 && w < 100 && r.0 > 0 && r.1 > 0   // sane caret only
+            });
+            if rect.is_some() { src = "caret"; }
+
+            if rect.is_none() {
+                if let Some(r) = cached_input(&cache, hwnd) {
+                    rect = Some(r);
+                    src = "cache";
+                }
+            }
+
+            // 1) focused element, but only if it's compose-bar sized
+            if rect.is_none() {
                 if let Some(el) = find_input(&auto) {
                     if let Ok(r) = el.get_bounding_rectangle() {
-                        rect = Some((r.get_left(), r.get_top(), r.get_right(), r.get_bottom()));
-                        break;
+                        let (w, h) = (r.get_right() - r.get_left(), r.get_bottom() - r.get_top());
+                        if w > 100 && h > 0 && h <= 200 {
+                            rect = Some((r.get_left(), r.get_top(), r.get_right(), r.get_bottom()));
+                            src = "focused";
+                        }
                     }
                 }
-                std::thread::sleep(Duration::from_millis(60));
             }
+
+            // 2) search the window's tree
             if rect.is_none() {
-                println!("no focused input, using window bottom");
-                rect = window_bottom_rect(hwnd);
+                for _ in 0..3 {
+                    if let Some(el) = find_input_in_window(&auto, hwnd) {
+                        if let Ok(r) = el.get_bounding_rectangle() {
+                            rect = Some((r.get_left(), r.get_top(), r.get_right(), r.get_bottom()));
+                            src = "tree";
+                            break;
+                        }
+                    }
+                    std::thread::sleep(Duration::from_millis(300));
+                }
             }
-            println!("uia took {:?}", t.elapsed());
+            
+            if src == "tree" {
+                if let (Some(r), Some(win)) = (rect, window_rect(hwnd)) {
+                    cache.lock().unwrap().insert(hwnd, (r, win));
+                }
+            }
+            // 3) last resort
+            if rect.is_none() {
+                rect = window_bottom_rect(hwnd);
+                src = "window-bottom";
+            }
+            println!("[placement] src={src} rect={:?} took={:?}", rect, t.elapsed());
+
+            let rect = rect.map(|r| if r.3 - r.1 > 200 { cursor_rect() } else { r });
             let _ = res_tx.send(rect);
         }
     });
@@ -184,15 +299,54 @@ fn spawn_uia_worker() -> (mpsc::Sender<isize>, mpsc::Receiver<Option<Rect4>>) {
     (req_tx, res_rx)
 }
 
+
+// hwnd -> (input rect, that window's rect when we cached it)
+type Cache = Arc<Mutex<HashMap<isize, (Rect4, Rect4)>>>;
+
+fn window_rect(hwnd: isize) -> Option<Rect4> {
+    let mut rc = RECT::default();
+    unsafe { GetWindowRect(HWND(hwnd as *mut core::ffi::c_void), &mut rc).ok()?; }
+    Some((rc.left, rc.top, rc.right, rc.bottom))
+}
+
+struct InputCacher { cache: Cache }
+
+impl CustomFocusChangedEventHandler for InputCacher {
+    fn handle(&self, el: &UIElement) -> uiautomation::Result<()> {
+        if !matches!(el.get_control_type(), Ok(ControlType::Edit) | Ok(ControlType::Document) | Ok(ControlType::ComboBox)) {
+            return Ok(());
+        }
+        // skip browser address bars (Brave/Chrome/Edge all use "...Omnibox...")
+        if el.get_classname().map(|c| c.contains("Omnibox")).unwrap_or(false) {
+            return Ok(());
+        }
+        let Ok(r) = el.get_bounding_rectangle() else { return Ok(()) };
+        let rect = (r.get_left(), r.get_top(), r.get_right(), r.get_bottom());
+        let (w, h) = (rect.2 - rect.0, rect.3 - rect.1);
+        if w < 100 || h <= 0 || h > 200 { return Ok(()); } // not a compose bar
+
+        let hwnd = unsafe { GetForegroundWindow() }.0 as isize;
+        if let Some(win) = window_rect(hwnd) {
+            self.cache.lock().unwrap().insert(hwnd, (rect, win));
+        }
+        Ok(())
+    }
+}
+
+// only trust the cache if the window hasn't moved or resized since
+fn cached_input(cache: &Cache, hwnd: isize) -> Option<Rect4> {
+    let (input, win_then) = *cache.lock().ok()?.get(&hwnd)?;
+    (window_rect(hwnd)? == win_then).then_some(input)
+}
+
+
 fn main() -> Result<(), slint::PlatformError> {
     let t = std::time::Instant::now();
     set_screen_reader_flag(true);
     let ui = Picker::new()?;
-    
+
     let conn = db::open().unwrap();
     let results = db::find(&conn).unwrap();
-    println!("db done: {:?}", t.elapsed());
-
 
     let mut memes:Vec<Meme> = Vec::new();
 
@@ -206,16 +360,8 @@ fn main() -> Result<(), slint::PlatformError> {
             Err(e) => eprintln!("skipping: {}: {:?}", row.path, e),
         }
     }
-    println!("images done: {:?}", t.elapsed());
+    println!("startup (db + images): {:?}", t.elapsed());
 
-    // let memes = vec![
-    //     for result in results {
-    //         Meme {
-    //             name: SharedString::from(result.name),
-    //             thumb: Image::load_from_path(Path::new(result.path)).unwrap(),
-    //         }
-    //     }
-    // ];
     let memes = Rc::new(memes);
     ui.set_memes(ModelRc::new(VecModel::from(memes.as_ref().clone())));
 
@@ -226,7 +372,7 @@ fn main() -> Result<(), slint::PlatformError> {
     manager.register(open).unwrap();
     let open_id = open.id();
 
-    
+
     let left = HotKey::new(None, Code::ArrowLeft);
     let right = HotKey::new(None, Code::ArrowRight);
     let up = HotKey::new(None, Code::ArrowUp);
@@ -246,11 +392,10 @@ fn main() -> Result<(), slint::PlatformError> {
     let weak = ui.as_weak();
     let mgr2 = manager.clone();
     let memes_click = memes.clone();
-    
+
     ui.on_memeclicked(move |index|{
-        println!("{}", index);
         if let Some(ui) = weak.upgrade(){
-            hide_popup(&ui, &mgr2, &nav);     
+            hide_popup(&ui, &mgr2, &nav);
             // pasting sequence next
             if let Some(m) = memes_click.get(index as usize){
                 let path = m.path.to_string();
@@ -275,14 +420,15 @@ fn main() -> Result<(), slint::PlatformError> {
     let weak = ui.as_weak();
     let mgr = manager.clone();
     let timer = slint::Timer::default();
-    
-    // let auto = UIAutomation::new().map_err(|e| e.to_string())?;
-    let (uia_tx, uia_rx) = spawn_uia_worker();
+
+    let cache: Cache = Arc::new(Mutex::new(HashMap::new()));
+    let (uia_tx, uia_rx) = spawn_uia_worker(cache.clone());
     let mut pending_open: Option<std::time::Instant> = None;
     timer.start(slint::TimerMode::Repeated, Duration::from_millis(15), move || {
         if let Some(since) = pending_open {
-            if since.elapsed() > Duration::from_millis(600) {
+            if since.elapsed() > Duration::from_millis(3500) {
                 pending_open = None; // give up, open at the cursor
+                println!("[placement] timed out, using cursor");
                 if let Some(ui) = weak.upgrade() {
                     place_popup(&ui, cursor_rect());
                     show_popup(&ui, &mgr, &nav);
@@ -296,8 +442,6 @@ fn main() -> Result<(), slint::PlatformError> {
             let Some(ui) = weak.upgrade() else { continue };
 
             let rect = rect.unwrap_or_else(cursor_rect);
-            let (l, t, r, b) = rect;
-            println!("input box: left={l} top={t} right={r} bottom={b} ({}x{})", r - l, b - t);
 
             place_popup(&ui, rect);
             show_popup(&ui, &mgr, &nav);
@@ -311,15 +455,15 @@ fn main() -> Result<(), slint::PlatformError> {
             if ev.id == open_id {
                 if visible {
                     hide_popup(&ui, &mgr, &nav);
-            } else if pending_open.is_none() {
-                let hwnd = unsafe { GetForegroundWindow() }.0 as isize;
-                if uia_tx.send(hwnd).is_ok() {
-                    pending_open = Some(std::time::Instant::now());
-                } else {
-                    place_popup(&ui, cursor_rect());
-                    show_popup(&ui, &mgr, &nav);
+                } else if pending_open.is_none() {
+                    let hwnd = unsafe { GetForegroundWindow() }.0 as isize;
+                    if uia_tx.send(hwnd).is_ok() {
+                        pending_open = Some(std::time::Instant::now());
+                    } else {
+                        place_popup(&ui, cursor_rect());
+                        show_popup(&ui, &mgr, &nav);
+                    }
                 }
-            }
             } else if visible {
                 if ev.id == left.id() { ui.invoke_select_prev(); }
                 else if ev.id == right.id() { ui.invoke_select_next(); }
@@ -328,9 +472,8 @@ fn main() -> Result<(), slint::PlatformError> {
                 else if ev.id == esc.id() { hide_popup(&ui, &mgr, &nav); }
                 else if ev.id == enter.id() {
                     let idx = ui.get_selected_index();
-                    println!("picked index {idx}");
                     hide_popup(&ui, &mgr, &nav);
-                    // pasting sequence 
+                    // pasting sequence
                     if let Some(m) = memes.get(idx as usize){
                         let path = m.path.to_string();
                         slint::Timer::single_shot(Duration::from_millis(50), move || {
