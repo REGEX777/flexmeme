@@ -13,6 +13,7 @@ image = "0.25.10"
 raw-window-handle = "0.6.2"
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 slint = { version = "1.x", features = ["raw-window-handle-06"] }
+tray-icon = "0.26.1"
 uiautomation = { version = "0.25.1", features = ["event"] }
 windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging"] }
 

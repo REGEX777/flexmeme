@@ -31,6 +31,7 @@ use uiautomation::events::{CustomFocusChangedEventHandler, UIFocusChangedEventHa
 use std::{collections::HashMap, sync::{Arc, Mutex}};
 use windows::Win32::UI::WindowsAndMessaging::{GetGUIThreadInfo, GUITHREADINFO, GetWindowThreadProcessId};
 use windows::Win32::Graphics::Gdi::ClientToScreen;
+use tray_icon::{TrayIconBuilder, Icon, menu::{Menu, MenuItem, MenuEvent}};
 
 fn set_screen_reader_flag(on: bool) {
     unsafe {
@@ -344,6 +345,7 @@ fn main() -> Result<(), slint::PlatformError> {
     let t = std::time::Instant::now();
     set_screen_reader_flag(true);
     let ui = Picker::new()?;
+    let settings_win = SettingsWindow::new()?;
 
     let conn = db::open().unwrap();
     let results = db::find(&conn).unwrap();
@@ -423,8 +425,39 @@ fn main() -> Result<(), slint::PlatformError> {
 
     let cache: Cache = Arc::new(Mutex::new(HashMap::new()));
     let (uia_tx, uia_rx) = spawn_uia_worker(cache.clone());
+
+
+    // tray stuff
+    let settings_item = MenuItem::new("Settings", true, None);
+    let exit_item = MenuItem::new("Exit", true, None);
+    let tray_menu = Menu::new();
+    tray_menu.append_items(&[&settings_item, &exit_item]).unwrap();
+    let settings_id = settings_item.id().clone();
+    let exit_id = exit_item.id().clone();
+
+    // test icon square white 
+    let rgba: Vec<u8> = (0..32 * 32).flat_map(|_| [138, 43, 226, 255]).collect();
+    let icon = Icon::from_rgba(rgba, 32, 32).unwrap();
+
+
+    let _tray = TrayIconBuilder::new().with_menu(Box::new(tray_menu)).with_tooltip("flexmeme").with_icon(icon).build().unwrap();
+
+
+
     let mut pending_open: Option<std::time::Instant> = None;
     timer.start(slint::TimerMode::Repeated, Duration::from_millis(15), move || {
+
+        // tray settings event listener
+        while let Ok(ev) = MenuEvent::receiver().try_recv() {
+            if ev.id == settings_id {
+                // setting widnow will be shown here
+                println!("show settings")
+            } else if ev.id == exit_id {
+                slint::quit_event_loop().ok();
+            }
+        }
+
+
         if let Some(since) = pending_open {
             if since.elapsed() > Duration::from_millis(3500) {
                 pending_open = None; // give up, open at the cursor
