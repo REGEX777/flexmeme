@@ -451,6 +451,7 @@ fn main() -> Result<(), slint::PlatformError> {
         while let Ok(ev) = MenuEvent::receiver().try_recv() {
             if ev.id == settings_id {
                 // setting widnow will be shown here
+                settings_win.show().ok();
                 println!("show settings")
             } else if ev.id == exit_id {
                 slint::quit_event_loop().ok();

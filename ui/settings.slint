@@ -1,8 +1,57 @@
+import "../fonts/inter.ttf";
+
+
+component NavSelector inherits Rectangle {
+    in property <string> label;
+    in property <image> icon;
+    callback clicked();
+
+    HorizontalLayout {
+        spacing: 6px;
+        alignment: center;
+        Image {
+            source: root.icon;
+            colorize: #fff;
+            // colorize: touch.has-hover ? #fff : #C0C0C0;
+            width: 14px;
+            image-fit: contain;
+        }
+        Text {
+            vertical-alignment: center;
+            font-family: "Inter";
+            text: root.label;
+        }
+    }
+
+}
+
 export component SettingsWindow inherits Window {
     title: "flexmeme-settings";
-    width: 488px;
-    height: 325px;
-    Text {
-        text: "hellow world";
+    width: 391px;
+    height: 626px;
+    default-font-family: "Inter";
+    VerticalLayout {
+        Rectangle {
+            height: 47px;
+            width: 391px;
+            background: #0D0D0D;
+            HorizontalLayout {
+                horizontal-stretch: 1;
+                NavSelector {
+                    label: "Hello";
+                    icon: @image-url("../assets/pinteresticon.svg");
+                    border-color: #fff;
+                }
+                Rectangle {
+                    width: 1px;
+                    background: #3a3a3a;
+                }
+                NavSelector {
+                    label: "Hello";
+                }
+            }
+
+        }
     }
+
 }
