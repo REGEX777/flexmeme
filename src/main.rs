@@ -363,8 +363,12 @@ fn main() -> Result<(), slint::PlatformError> {
         slint::spawn_local(async move {
             if let Some(dir) = rfd::AsyncFileDialog::new().pick_folder().await {
                 let path = dir.path().to_string_lossy().to_string();
-                set_setting(&conn, "storage_folder", &path);
-                println!("{}", path);
+                if let Err(e) = set_setting(&conn, "storage_folder", &path) {
+                    eprintln!("failed to save folder: {e}");
+                }
+                if let Some(w) = weak.upgrade(){
+                    w.set_folder_path(path.into());
+                }
                 weak.unwrap();
             }
         }).unwrap();
