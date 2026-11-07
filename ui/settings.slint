@@ -6,19 +6,28 @@ component NavSelector inherits Rectangle {
     in property <image> icon;
     callback clicked();
 
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {root.clicked()}
+    }
+
+    background: touch.has-hover ? #242424 : #202020;
+
+
     HorizontalLayout {
         spacing: 6px;
         alignment: center;
         Image {
             source: root.icon;
-            colorize: #fff;
-            // colorize: touch.has-hover ? #fff : #C0C0C0;
-            width: 14px;
+            // colorize: #C0C0C0;
+            colorize: touch.has-hover ? #fff : #C0C0C0;
+            width: 18px;
             image-fit: contain;
         }
         Text {
             vertical-alignment: center;
             font-family: "Inter";
+            font-size: 13px;
             text: root.label;
         }
     }
@@ -26,11 +35,14 @@ component NavSelector inherits Rectangle {
 }
 
 export component SettingsWindow inherits Window {
+    callback pickfolder();
+
     title: "flexmeme-settings";
     width: 391px;
     height: 626px;
     default-font-family: "Inter";
     VerticalLayout {
+        spacing: 20px;
         Rectangle {
             height: 47px;
             width: 391px;
@@ -38,20 +50,56 @@ export component SettingsWindow inherits Window {
             HorizontalLayout {
                 horizontal-stretch: 1;
                 NavSelector {
-                    label: "Hello";
+                    label: "Pinterest";
                     icon: @image-url("../assets/pinteresticon.svg");
-                    border-color: #fff;
                 }
                 Rectangle {
                     width: 1px;
                     background: #3a3a3a;
                 }
                 NavSelector {
-                    label: "Hello";
+                    icon: @image-url("../assets/uploadicon.svg");
+                    label: "Upload";
                 }
             }
+        }
+        HorizontalLayout {
+            alignment: center;
+            VerticalLayout {
+                width: 360px;
+                height: 10px;
+                spacing: 10px;
+                Text {
+                    text: "Select Storage Folder";
+                }
+                Rectangle {
+                    width: 360px;
+                    height: 40px;
+                    background: touch.has-hover ? #242424 :#202020;
+                    border-radius: 3px;
+                    touch := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {root.pickfolder()}
+                    }
 
+                    HorizontalLayout {
+                        alignment: center;
+                        spacing: 10px;
+                        Image {
+                            source: @image-url("../assets/plusicon.svg");
+                            width: 18px;
+                            colorize: #fff;
+                        }
+                        Text {
+                            vertical-alignment: center;
+                            text: "Click to select folder";
+                        }
+                    }
+
+                }
+            }
         }
     }
+
 
 }
