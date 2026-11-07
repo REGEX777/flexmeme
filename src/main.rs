@@ -33,7 +33,7 @@ use windows::Win32::UI::WindowsAndMessaging::{GetGUIThreadInfo, GUITHREADINFO, G
 use windows::Win32::Graphics::Gdi::ClientToScreen;
 use tray_icon::{TrayIconBuilder, Icon, menu::{Menu, MenuItem, MenuEvent}};
 
-use crate::db::set_setting;
+use crate::db::{get_setting, set_setting};
 
 fn set_screen_reader_flag(on: bool) {
     unsafe {
@@ -357,6 +357,15 @@ fn main() -> Result<(), slint::PlatformError> {
     //settings shit
     let weak = settings_win.as_weak();
     let conn_for_settings = conn.clone();
+    match get_setting(&conn,"storage_folder") {
+        Ok(Some(path)) => {
+            settings_win.set_folder_path(path.into());
+        }
+        Ok(None) => {
+
+        }
+        Err(e) => eprintln!("failed to read settings: {e}"),
+    }
     settings_win.on_pickfolder(move || {
         let weak = weak.clone();
         let conn = conn_for_settings.clone();
