@@ -1,5 +1,4 @@
-
-use rusqlite::{params, Connection, Result};
+use rusqlite::{Connection, OptionalExtension, Result, params};
 use std::path::PathBuf;
 
 use crate::Meme;
@@ -28,6 +27,10 @@ pub fn open() -> Result<Connection>{
         source TEXT NOT NULL DEFAULT 'upload',
         added_at DATE NOT NULL DEFAULT (strftime('%s','now'))
     );", [])?;
+    conn.execute("CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+    );", [])?;
     Ok(conn)
 }
 
@@ -45,4 +48,13 @@ pub fn find(conn: &Connection) -> Result<Vec<MemeRow>> {
     })?;
 
     data.collect()
+}
+
+pub fn set_setting(conn: &Connection, key: &str, value: &str)-> Result<()>{
+    conn.execute("INSERT INTO settings (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value", params![key, value],)?;
+    Ok(())
+}
+
+pub fn get_setting(conn: &Connection, key: &str)->Result<Option<String>>{
+    conn.query_row("SELECT value FROM settings where key=?1", params![key], |r|r.get(0)).optional()
 }

@@ -33,6 +33,8 @@ use windows::Win32::UI::WindowsAndMessaging::{GetGUIThreadInfo, GUITHREADINFO, G
 use windows::Win32::Graphics::Gdi::ClientToScreen;
 use tray_icon::{TrayIconBuilder, Icon, menu::{Menu, MenuItem, MenuEvent}};
 
+use crate::db::set_setting;
+
 fn set_screen_reader_flag(on: bool) {
     unsafe {
         let _ = SystemParametersInfoW(SPI_SETSCREENREADER, on as u32, None, SPIF_SENDCHANGE);
@@ -347,10 +349,26 @@ fn main() -> Result<(), slint::PlatformError> {
     let ui = Picker::new()?;
     let settings_win = SettingsWindow::new()?;
 
-    let conn = db::open().unwrap();
+    let conn = Rc::new(db::open().unwrap());
     let results = db::find(&conn).unwrap();
 
     let mut memes:Vec<Meme> = Vec::new();
+
+    //settings shit
+    let weak = settings_win.as_weak();
+    let conn_for_settings = conn.clone();
+    settings_win.on_pickfolder(move || {
+        let weak = weak.clone();
+        let conn = conn_for_settings.clone();
+        slint::spawn_local(async move {
+            if let Some(dir) = rfd::AsyncFileDialog::new().pick_folder().await {
+                let path = dir.path().to_string_lossy().to_string();
+                set_setting(&conn, "storage_folder", &path);
+                println!("{}", path);
+                weak.unwrap();
+            }
+        }).unwrap();
+    });
 
     for row in results {
         match Image::load_from_path(Path::new(&row.path)){
@@ -524,3 +542,5 @@ fn main() -> Result<(), slint::PlatformError> {
     set_screen_reader_flag(false);
     result
 }
+
+
