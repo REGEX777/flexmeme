@@ -366,6 +366,20 @@ fn main() -> Result<(), slint::PlatformError> {
         }
         Err(e) => eprintln!("failed to read settings: {e}"),
     }
+
+    let resetweak = settings_win.as_weak();
+    let connreset = conn.clone();
+    settings_win.on_reset(move || {
+
+        if let Err(e) = set_setting(&connreset, "storage_folder", "") {
+            eprintln!("failed to save folder: {e}");
+        }
+        if let Some(w) = resetweak.upgrade(){
+            w.set_folder_path("".into());
+        }
+        resetweak.unwrap();
+    });
+
     settings_win.on_pickfolder(move || {
         let weak = weak.clone();
         let conn = conn_for_settings.clone();

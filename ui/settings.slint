@@ -36,6 +36,7 @@ component NavSelector inherits Rectangle {
 
 export component SettingsWindow inherits Window {
     callback pickfolder();
+    callback reset();
     in-out property <string> folder-path: "";
 
     title: "flexmeme-settings";
@@ -98,7 +99,29 @@ export component SettingsWindow inherits Window {
                             text: root.folder-path == "" ? "Click to select folder" : root.folder-path;
                         }
                     }
+                }
+                HorizontalLayout {
+                    alignment: center;
+                    Rectangle {
+                        height: 20px;
+                        width: 45px;
+                        border-radius: 5px;
+                        background: button.has-hover ? #242424 : transparent;
+                        button := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {root.reset()}
+                        }
 
+                        
+                        HorizontalLayout {
+                            alignment: center;
+                            Text {
+                                vertical-alignment: center;
+                                font-size: 12px;
+                                text: "Reset";
+                            }
+                        }
+                    }
                 }
             }
         }
