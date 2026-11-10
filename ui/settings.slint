@@ -36,6 +36,7 @@ component NavSelector inherits Rectangle {
 
 export component SettingsWindow inherits Window {
     callback pickfolder();
+    callback pickuploads();
     callback reset();
     in-out property <string> folder-path: "";
 
@@ -120,6 +121,33 @@ export component SettingsWindow inherits Window {
                                 font-size: 12px;
                                 text: "Reset";
                             }
+                        }
+                    }
+                }
+                Rectangle {
+                    width: 360px;
+                    height: 40px;
+                    background: root.folder-path != "" ? upload.has-hover ? #242424 :#202020 : #1b1a1a;
+                    border-radius: 3px;
+                    upload := TouchArea {
+                        mouse-cursor: pointer;
+                        enabled: root.folder-path != "";
+                        clicked => {root.pickuploads()}
+                    }
+
+                    
+
+                    HorizontalLayout {
+                        alignment: center;
+                        spacing: 10px;
+                        Image {
+                            source: @image-url("../assets/uploadicon.svg");
+                            width: 18px;
+                            colorize: #fff;
+                        }
+                        Text {
+                            vertical-alignment: center;
+                            text: root.folder-path != "" ? "Upload Images" : "Please select folder";
                         }
                     }
                 }

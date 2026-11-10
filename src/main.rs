@@ -397,6 +397,21 @@ fn main() -> Result<(), slint::PlatformError> {
         }).unwrap();
     });
 
+    settings_win.on_pickuploads(move || {
+        slint::spawn_local(async move {
+            let files = rfd::AsyncFileDialog::new()
+                .add_filter("images", &["png", "jpg", "jpeg", "gif", "webp"])
+                .pick_files()
+                .await;
+            
+            if let Some(files) = files {
+                for f in files {
+                    println!("{}", f.path().display());
+                }
+            }
+        }).unwrap();
+    });
+
     for row in results {
         match Image::load_from_path(Path::new(&row.path)){
             Ok(thumb)=>memes.push(Meme {
