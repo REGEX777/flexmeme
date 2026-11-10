@@ -397,7 +397,9 @@ fn main() -> Result<(), slint::PlatformError> {
         }).unwrap();
     });
 
+    let weak_upload = settings_win.as_weak();
     settings_win.on_pickuploads(move || {
+        let weak = weak_upload.clone();
         slint::spawn_local(async move {
             let files = rfd::AsyncFileDialog::new()
                 .add_filter("images", &["png", "jpg", "jpeg", "gif", "webp"])
@@ -405,8 +407,19 @@ fn main() -> Result<(), slint::PlatformError> {
                 .await;
             
             if let Some(files) = files {
+                let Some(w) = weak.upgrade() else { return };
+                let folder = w.get_folder_path().to_string();
+                if folder.is_empty() { return }
+
                 for f in files {
-                    println!("{}", f.path().display());
+                    let filepath = f.path();
+                    let filename = f.file_name();
+                    let dest = Path::new(&folder).join(filename);
+                    if let Err(e) = std::fs::copy(filepath, &dest){
+                        eprintln!("failed to copy {:?}: {e}", filepath);
+                    }
+
+                    println!("{}:{}", f.path().display(), f.file_name());
                 }
             }
         }).unwrap();
