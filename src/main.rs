@@ -4,7 +4,7 @@ slint::include_modules!();
 use image::ImageReader;
 use slint::{Image, ModelRc, SharedString, VecModel};
 use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState, hotkey::{HotKey, Modifiers, Code}};
-use std::{path::Path, time::Duration};
+use std::{fs, path::Path, time::Duration};
 use windows::core::{w, PCWSTR};
 use windows::Win32::UI::WindowsAndMessaging::FindWindowW;
 // use arboard::Clipboard;
@@ -32,6 +32,8 @@ use std::{collections::HashMap, sync::{Arc, Mutex}};
 use windows::Win32::UI::WindowsAndMessaging::{GetGUIThreadInfo, GUITHREADINFO, GetWindowThreadProcessId};
 use windows::Win32::Graphics::Gdi::ClientToScreen;
 use tray_icon::{TrayIconBuilder, Icon, menu::{Menu, MenuItem, MenuEvent}};
+use blake3::{hash};
+
 
 use crate::db::{get_setting, set_setting};
 
@@ -418,6 +420,37 @@ fn main() -> Result<(), slint::PlatformError> {
                     if let Err(e) = std::fs::copy(filepath, &dest){
                         eprintln!("failed to copy {:?}: {e}", filepath);
                     }
+                    let metadata = match std::fs::metadata(&dest) {
+                        Ok(m) => m, 
+                        Err(e) => {
+                            eprintln!("Unable to read metadata: {}", e);
+                            continue;
+                        }
+                    };
+                    if !metadata.is_file() {continue;}
+
+                    let hash = blake3::hash(&std::fs::read(&dest).unwrap()).to_string();
+
+
+                    if metadata.file_type().is_file(){
+                        let name = match dest.file_stem() {
+                            Some(s) => match s.to_str(){
+                                Some(s)=>s,
+                                None => "meme"
+                            },
+                            None => "meme"
+                        };
+                    }
+
+                    let size = metadata.len() as i64;
+                    let mtime = metadata.modified()
+                    .ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_secs() as i64)
+                    .unwrap_or(0);
+
+                    println!("{mtime}");
+                    
 
                     println!("{}:{}", f.path().display(), f.file_name());
                 }

@@ -31,6 +31,18 @@ pub fn open() -> Result<Connection>{
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL
     );", [])?;
+    conn.execute("CREATE TABLE IF NOT EXISTS uploads (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        path TEXT NOT NULL UNIQUE,
+        source TEXT NOT NULL DEFAULT 'local',
+        size INTEGER,
+        mtime INTEGER,
+        tags TEXT,
+        hash TEXT,
+        indexed INTEGER NOT NULL DEFAULT 0,
+        added_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+    );", [])?;
     Ok(conn)
 }
 
@@ -57,4 +69,16 @@ pub fn set_setting(conn: &Connection, key: &str, value: &str)-> Result<()>{
 
 pub fn get_setting(conn: &Connection, key: &str)->Result<Option<String>>{
     conn.query_row("SELECT value FROM settings where key=?1", params![key], |r|r.get(0)).optional()
+}
+
+pub fn upsert_meme(conn: &Connection, name: &str, path: &str, size: i64, mtime: i64) -> Result<()>{
+    conn.execute(
+        "INSERT INTO memes (name, path, size, mtime) VALUES (?1, ?2, ?3, ?4)
+            ON CONFLICT(path, hash) DO UPDATE SET
+                size = excluded.size,
+                mtime = excluded.mtime,
+                indexed=0",
+            params![name, path, size, mtime],
+    )?;
+    Ok(())
 }
