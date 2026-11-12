@@ -35,7 +35,7 @@ use tray_icon::{TrayIconBuilder, Icon, menu::{Menu, MenuItem, MenuEvent}};
 use blake3::{hash};
 
 
-use crate::db::{get_setting, set_setting};
+use crate::db::{get_setting, set_setting, upsert_meme};
 
 fn set_screen_reader_flag(on: bool) {
     unsafe {
@@ -402,6 +402,7 @@ fn main() -> Result<(), slint::PlatformError> {
     let weak_upload = settings_win.as_weak();
     settings_win.on_pickuploads(move || {
         let weak = weak_upload.clone();
+        let conn = conn.clone();
         slint::spawn_local(async move {
             let files = rfd::AsyncFileDialog::new()
                 .add_filter("images", &["png", "jpg", "jpeg", "gif", "webp"])
@@ -432,15 +433,13 @@ fn main() -> Result<(), slint::PlatformError> {
                     let hash = blake3::hash(&std::fs::read(&dest).unwrap()).to_string();
 
 
-                    if metadata.file_type().is_file(){
-                        let name = match dest.file_stem() {
-                            Some(s) => match s.to_str(){
-                                Some(s)=>s,
-                                None => "meme"
-                            },
+                    let name = match dest.file_stem() {
+                        Some(s) => match s.to_str(){
+                            Some(s)=>s,
                             None => "meme"
-                        };
-                    }
+                        },
+                        None => "meme"
+                    };
 
                     let size = metadata.len() as i64;
                     let mtime = metadata.modified()
@@ -451,6 +450,9 @@ fn main() -> Result<(), slint::PlatformError> {
 
                     println!("{mtime}");
                     
+                    if let Err(e) = upsert_meme(&conn, name, &dest.to_string_lossy(), size, &hash, mtime){
+                      eprintln!("{e}")  
+                    };
 
                     println!("{}:{}", f.path().display(), f.file_name());
                 }
