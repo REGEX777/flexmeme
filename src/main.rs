@@ -641,7 +641,7 @@ fn main() -> Result<(), slint::PlatformError> {
                     let idx = ui.get_selected_index();
                     hide_popup(&ui, &mgr, &nav);
                     // pasting sequence
-                    if let Some(m) = memes.get(idx as usize){
+                    if let Some(m) = ui.get_memes().row_data(idx as usize){
                         let path = m.path.to_string();
                         slint::Timer::single_shot(Duration::from_millis(50), move || {
                             paste_meme(Path::new(&path)).unwrap_or_else(|e| eprintln!("Failed to paste the image: {e}"));
