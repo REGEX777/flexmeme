@@ -46,11 +46,27 @@ pub fn open() -> Result<Connection>{
     Ok(conn)
 }
 
+// pub fn find(conn: &Connection) -> Result<Vec<MemeRow>> {
+//     println!("db: {:?}", db_path());
+//     let count: i64 = conn.query_row("SELECT COUNT(*) FROM memes", [], |r| r.get(0))?;
+//     println!("rows: {count}");
+//     let mut stmt = conn.prepare("SELECT id, name, path FROM memes")?;
+//     let data = stmt.query_map([], |row| {
+//         Ok(MemeRow {
+//             id: row.get(0)?,
+//             name: row.get(1)?,
+//             path: row.get(2)?,
+//         })
+//     })?;
+
+//     data.collect()
+// }
+
 pub fn find(conn: &Connection) -> Result<Vec<MemeRow>> {
     println!("db: {:?}", db_path());
-    let count: i64 = conn.query_row("SELECT COUNT(*) FROM memes", [], |r| r.get(0))?;
+    let count: i64 = conn.query_row("SELECT COUNT(*) FROM uploads", [], |r| r.get(0))?;
     println!("rows: {count}");
-    let mut stmt = conn.prepare("SELECT id, name, path FROM memes")?;
+    let mut stmt = conn.prepare("SELECT id, name, path FROM uploads")?;
     let data = stmt.query_map([], |row| {
         Ok(MemeRow {
             id: row.get(0)?,
@@ -61,6 +77,7 @@ pub fn find(conn: &Connection) -> Result<Vec<MemeRow>> {
 
     data.collect()
 }
+
 
 pub fn set_setting(conn: &Connection, key: &str, value: &str)-> Result<()>{
     conn.execute("INSERT INTO settings (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value", params![key, value],)?;

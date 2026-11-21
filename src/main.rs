@@ -2,7 +2,7 @@ mod db;
 slint::include_modules!();
 
 use image::ImageReader;
-use slint::{Image, ModelRc, SharedString, VecModel};
+use slint::{Image, Model, ModelRc, SharedString, VecModel};
 use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState, hotkey::{HotKey, Modifiers, Code}};
 use std::{fs, path::Path, time::Duration};
 use windows::core::{w, PCWSTR};
@@ -355,6 +355,21 @@ fn main() -> Result<(), slint::PlatformError> {
     let results = db::find(&conn).unwrap();
 
     let mut memes:Vec<Meme> = Vec::new();
+    for row in results {
+        match Image::load_from_path(Path::new(&row.path)){
+            Ok(thumb)=>memes.push(Meme {
+                name: SharedString::from(row.name),
+                thumb,
+                path: SharedString::from(row.path)
+            }),
+            Err(e) => eprintln!("skipping: {}: {:?}", row.path, e),
+        }
+    }
+    println!("startup (db + images): {:?}", t.elapsed());
+
+
+    let memes = Rc::new(memes);
+    ui.set_memes(ModelRc::new(VecModel::from(memes.as_ref().clone())));
 
     //settings shit
     let weak = settings_win.as_weak();
@@ -400,8 +415,10 @@ fn main() -> Result<(), slint::PlatformError> {
     });
 
     let weak_upload = settings_win.as_weak();
+    let weak_ui_for_upload = ui.as_weak();
     settings_win.on_pickuploads(move || {
         let weak = weak_upload.clone();
+        let weak_ui = weak_ui_for_upload.clone();
         let conn = conn.clone();
         slint::spawn_local(async move {
             let files = rfd::AsyncFileDialog::new()
@@ -453,27 +470,33 @@ fn main() -> Result<(), slint::PlatformError> {
                     if let Err(e) = upsert_meme(&conn, name, &dest.to_string_lossy(), size, &hash, mtime){
                       eprintln!("{e}")  
                     };
-
                     println!("{}:{}", f.path().display(), f.file_name());
                 }
+                let Some(ui) = weak_ui.upgrade() else { return };
+                let results = db::find(&conn).unwrap();
+                
+                let mut memes:Vec<Meme> = Vec::new();
+                for row in results {
+                    match Image::load_from_path(Path::new(&row.path)){
+                        Ok(thumb)=>memes.push(Meme {
+                            name: SharedString::from(row.name),
+                            thumb,
+                            path: SharedString::from(row.path)
+                        }),
+                        Err(e) => eprintln!("skipping: {}: {:?}", row.path, e),
+                    }
+                }
+                println!("new meme loaded time taken {:?}", t.elapsed());
+
+
+                let memes = Rc::new(memes);
+                ui.set_memes(ModelRc::new(VecModel::from(memes.as_ref().clone())));
+
             }
         }).unwrap();
     });
 
-    for row in results {
-        match Image::load_from_path(Path::new(&row.path)){
-            Ok(thumb)=>memes.push(Meme {
-                name: SharedString::from(row.name),
-                thumb,
-                path: SharedString::from(row.path)
-            }),
-            Err(e) => eprintln!("skipping: {}: {:?}", row.path, e),
-        }
-    }
-    println!("startup (db + images): {:?}", t.elapsed());
 
-    let memes = Rc::new(memes);
-    ui.set_memes(ModelRc::new(VecModel::from(memes.as_ref().clone())));
 
     let manager = Rc::new(GlobalHotKeyManager::new().unwrap());
 
@@ -501,14 +524,16 @@ fn main() -> Result<(), slint::PlatformError> {
 
     let weak = ui.as_weak();
     let mgr2 = manager.clone();
-    let memes_click = memes.clone();
+    let mut memes_click = memes.clone();
 
     ui.on_memeclicked(move |index|{
         if let Some(ui) = weak.upgrade(){
             hide_popup(&ui, &mgr2, &nav);
             // pasting sequence next
-            if let Some(m) = memes_click.get(index as usize){
+            let memes = ui.get_memes();
+            if let Some(m) = memes.row_data(index as usize){
                 let path = m.path.to_string();
+                println!("{}", path);
                 slint::Timer::single_shot(Duration::from_millis(50), move || {
                     paste_meme(Path::new(&path)).unwrap_or_else(|e| eprintln!("Failed to paste the image: {e}"));
                 });
